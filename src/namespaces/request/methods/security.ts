@@ -67,6 +67,35 @@ function resolveSlotValue(v: any): any {
 }
 
 /**
+ * Materialize helper objects captured in `secContext.params` expression values
+ * into primitives for the secondary bar at `secContextIdx`.
+ *
+ * request.security must return plain numbers — TradingView treats the tuple's
+ * `time` / `time_close` elements as the numeric timestamps of the matched
+ * secondary bar.  PineTS' runtime stores bare `time` / `time_close` as
+ * TimeHelper objects (whose `__value` is the whole openTime/closeTime Series),
+ * which leak non-primitives into downstream consumers (box coords, plots,
+ * na()).  Resolve each helper against the secondary context's forward-stored
+ * data at the matched index.
+ */
+function resolveSecValue(v: any, secContext: any, secContextIdx: number): any {
+    if (v != null && typeof v === 'object') {
+        if ('__value' in v) {
+            const s = Series.from(v.__value);
+            // secContextIdx is a forward index into s.data (same array that
+            // findSecContextIdx iterates).  Use direct array access, not
+            // Series.get() which reverse-indexes.
+            const data: any[] = s.data;
+            return secContextIdx >= 0 && secContextIdx < data.length
+                ? data[secContextIdx]
+                : NaN;
+        }
+        if (Array.isArray(v)) return v.map((e: any) => resolveSecValue(e, secContext, secContextIdx));
+    }
+    return v;
+}
+
+/**
  * Resolve the request.param name attached to a slot. Checks two sources:
  *  1. The positional argName captured at parse time (slot filled positionally).
  *  2. The wrapper tuple inside the options bag (slot filled via named args).
@@ -210,6 +239,11 @@ export function security(context: any) {
         // (i.e., the bar hasn't closed yet). In backtesting mode with a fixed eDate, all bars
         // are historical even the last one, so isRealtime stays false.
         const isRealtime = context.idx === context.length - 1 && myCloseTime > Date.now();
+        // On the last bar (whatever the data source), lookahead_off also returns the current
+        // forming HTF bar — TradingView always shows the developing HTF single-K on the chart's
+        // right edge, including preloaded/replay datasets whose last bar is already in the past.
+        // Without this, MTF indicators never draw the currently-forming higher-timeframe candle.
+        const isLastBar = context.idx === context.length - 1;
 
         // Cache key must be unique per symbol+timeframe+expression to avoid collisions
         const cacheKey = `${_symbol}_${_timeframe}_${_expression_name}`;
@@ -236,13 +270,13 @@ export function security(context: any) {
                       context.eDate,
                       _gaps
                   )
-                : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead, isRealtime);
+                : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead, isRealtime, isLastBar);
 
             if (secContextIdx == -1) {
                 return NaN;
             }
 
-            const value = secContext.params[_expression_name][secContextIdx];
+            const value = resolveSecValue(secContext.params[_expression_name][secContextIdx], secContext, secContextIdx);
 
             // Handle gaps for HTF (Higher Timeframe)
             if (!isLTF && _gaps) {
@@ -338,13 +372,13 @@ export function security(context: any) {
                   context.eDate,
                   _gaps
               )
-            : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead, isRealtime);
+            : findSecContextIdx(myOpenTime, myCloseTime, secContext.data.openTime.data, secContext.data.closeTime.data, _lookahead, isRealtime, isLastBar);
 
         if (secContextIdx == -1) {
             return NaN;
         }
 
-        const value = secContext.params[_expression_name][secContextIdx];
+        const value = resolveSecValue(secContext.params[_expression_name][secContextIdx], secContext, secContextIdx);
 
         // Handle gaps for HTF (Higher Timeframe) - First call
         if (!isLTF && _gaps) {

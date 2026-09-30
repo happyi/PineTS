@@ -2,6 +2,13 @@
 // This file is auto-generated. Do not edit manually.
 // Run: npm run generate:math-index
 
+import { __eq } from './methods/__eq';
+import { __ge } from './methods/__ge';
+import { __gt } from './methods/__gt';
+import { __idiv } from './methods/__idiv';
+import { __le } from './methods/__le';
+import { __lt } from './methods/__lt';
+import { __neq } from './methods/__neq';
 import { abs } from './methods/abs';
 import { acos } from './methods/acos';
 import { asin } from './methods/asin';
@@ -32,15 +39,15 @@ import { sum } from './methods/sum';
 import { tan } from './methods/tan';
 import { todegrees } from './methods/todegrees';
 import { toradians } from './methods/toradians';
-import { __eq } from './methods/__eq';
-import { __ge } from './methods/__ge';
-import { __gt } from './methods/__gt';
-import { __idiv } from './methods/__idiv';
-import { __le } from './methods/__le';
-import { __lt } from './methods/__lt';
-import { __neq } from './methods/__neq';
 
 const methods = {
+  __eq,
+  __ge,
+  __gt,
+  __idiv,
+  __le,
+  __lt,
+  __neq,
   abs,
   acos,
   asin,
@@ -70,18 +77,18 @@ const methods = {
   sum,
   tan,
   todegrees,
-  toradians,
-  __eq,
-  __ge,
-  __gt,
-  __idiv,
-  __le,
-  __lt,
-  __neq
+  toradians
 };
 
 export class PineMath {
   private _cache = {};
+  __eq: ReturnType<typeof methods.__eq>;
+  __ge: ReturnType<typeof methods.__ge>;
+  __gt: ReturnType<typeof methods.__gt>;
+  __idiv: ReturnType<typeof methods.__idiv>;
+  __le: ReturnType<typeof methods.__le>;
+  __lt: ReturnType<typeof methods.__lt>;
+  __neq: ReturnType<typeof methods.__neq>;
   abs: ReturnType<typeof methods.abs>;
   acos: ReturnType<typeof methods.acos>;
   asin: ReturnType<typeof methods.asin>;
@@ -112,13 +119,6 @@ export class PineMath {
   tan: ReturnType<typeof methods.tan>;
   todegrees: ReturnType<typeof methods.todegrees>;
   toradians: ReturnType<typeof methods.toradians>;
-  __eq: ReturnType<typeof methods.__eq>;
-  __ge: ReturnType<typeof methods.__ge>;
-  __gt: ReturnType<typeof methods.__gt>;
-  __idiv: ReturnType<typeof methods.__idiv>;
-  __le: ReturnType<typeof methods.__le>;
-  __lt: ReturnType<typeof methods.__lt>;
-  __neq: ReturnType<typeof methods.__neq>;
 
   constructor(private context: any) {
     // Install methods

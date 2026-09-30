@@ -245,3 +245,164 @@ plot(dailyClose, "dc")
         expect(TIMEFRAMES.indexOf(normalizeTimeframe('1d'))).toBe(TIMEFRAMES.indexOf('D'));
     });
 });
+
+// ── Current (developing) HTF bar on the LAST LTF bar with lookahead_off ───────
+//
+// Root cause of "HTF single-K not showing on the right edge":
+//   findSecContextIdx with lookahead=false returns i-1 while a bar sits inside an
+//   un-closed HTF bucket. On the LAST bar this hides the current forming HTF
+//   single-K (e.g. the developing current 1D candle from a 1h chart). TradingView
+//   shows the current developing HTF values on the last (live) bar, so the last
+//   bar must resolve to the current bucket i even when isRealtime=false (i.e. when
+//   the dataset is historical/preloaded and Date.now() is already past the data).
+describe('request.security current forming HTF bar on last LTF bar (lookahead_off)', () => {
+    const HOUR = 1000 * 60 * 60;
+    const DAY = 24 * HOUR;
+
+    // 1h candles, monotonic price (close == index), starting 2024-01-01 00:00 UTC,
+    // ending mid-day on 2024-01-10 09:00 UTC → last day (Jan 10) is still forming.
+    function hourlyCandles() {
+        const start = Date.UTC(2024, 0, 1);
+        const total = 9 * 24 + 10; // 9 full days + 10 hours of Jan 10
+        const bars = [];
+        for (let i = 0; i < total; i++) {
+            const openTime = start + i * HOUR;
+            const v = i; // close == index -> last candle close == total-1
+            bars.push({
+                openTime,
+                open: v,
+                high: v + 1,
+                low: v - 1,
+                close: v,
+                closeTime: openTime + HOUR,
+            });
+        }
+        return bars;
+    }
+
+    function dayAggregate(bars) {
+        const out = [];
+        for (const c of bars) {
+            const day = Math.floor(c.openTime / DAY) * DAY;
+            const last = out.length ? out[out.length - 1] : null;
+            if (last && last.openTime === day) {
+                if (c.high > last.high) last.high = c.high;
+                if (c.low < last.low) last.low = c.low;
+                last.close = c.close;
+                last.closeTime = day + DAY;
+            } else {
+                out.push({
+                    openTime: day,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    closeTime: day + DAY,
+                });
+            }
+        }
+        return out;
+    }
+
+    function inlineProvider(bars: any[]) {
+        return {
+            async getMarketData(_tickerId: string, timeframe: string, limit: number | null | undefined, sDate: number | null | undefined, eDate: number | null | undefined) {
+                let data: any[] = timeframe === 'D' ? dayAggregate(bars) : bars;
+                if (sDate != null) data = data.filter((c: any) => c.openTime >= sDate);
+                if (eDate != null) data = data.filter((c: any) => c.openTime <= eDate);
+                if (limit != null && limit > 0 && data.length > limit) data = data.slice(data.length - limit);
+                return data;
+            },
+            async getSymbolInfo(_tickerId: string) {
+                const sym = {
+                    ticker: 'BTCUSDC',
+                    tickerid: 'BTCUSDC',
+                    description: 'BTC/USDC',
+                    prefix: '',
+                    root: 'BTC',
+                    type: 'crypto',
+                    main_tickerid: 'BTCUSDC',
+                    current_contract: '',
+                    isin: '',
+                    basecurrency: 'BTC',
+                    currency: 'USDC',
+                    country: '',
+                    timezone: 'Etc/UTC',
+                    session: '24x7',
+                    volumetype: 'base',
+                    expiration_date: 0,
+                    employees: 0,
+                    industry: '',
+                    sector: '',
+                    shareholders: 0,
+                    shares_outstanding_float: 0,
+                    shares_outstanding_total: 0,
+                    recommendations_buy: 0,
+                    recommendations_buy_strong: 0,
+                    recommendations_date: 0,
+                    recommendations_hold: 0,
+                    recommendations_sell: 0,
+                    recommendations_sell_strong: 0,
+                    recommendations_total: 0,
+                    target_price_average: 0,
+                    target_price_date: 0,
+                    target_price_estimates: 0,
+                    target_price_high: 0,
+                    target_price_low: 0,
+                    target_price_median: 0,
+                    mincontract: 0,
+                    minmove: 1,
+                    mintick: 0.01,
+                    pointvalue: 1,
+                    pricescale: 100,
+                };
+                return sym;
+            },
+            configure(): void {},
+        };
+    }
+
+    it('last bar of a 1h chart should return the current forming daily close, not the previous day close', async () => {
+        const sDate = Date.UTC(2024, 0, 1);
+        const eDate = Date.UTC(2024, 0, 10, 9); // last 1h bar 09:00 UTC
+        const bars = hourlyCandles();
+        const expectLastClose = bars.length - 1; // developing daily close == last 1h close
+
+        const pineTS = new PineTS(inlineProvider(bars), 'BTCUSDC', '60', null, sDate, eDate);
+
+        const { plots } = await pineTS.run(
+`//@version=5
+indicator("current-htf-bar")
+float dc = request.security(syminfo.tickerid, "D", close, barmerge.gaps_off, barmerge.lookahead_off)
+plot(dc, "dc")
+`);
+
+        const data = plots['dc'].data;
+        expect(data.length).toBe(bars.length);
+
+        const last = data[data.length - 1];
+        // Before the fix the last bar resolves to the PREVIOUS closed daily bucket (i-1),
+        // so the current forming 1D single-K never exists for MTF indicators.
+        expect(isNaN(last.value)).toBe(false);
+        expect(last.value).toBeCloseTo(expectLastClose, 6);
+
+        // The second-to-last bar inside the same forming day must STILL return the
+        // previous (closed) day's close — lookahead_off only relaxes on the last bar.
+        const prev = data[data.length - 2];
+        expect(prev.value).toBeCloseTo(expectLastClose - 10, 6);
+    });
+
+    it('findSecContextIdx unit: last-bar flag returns current bucket instead of i-1', async () => {
+        const { findSecContextIdx } = await import('../../src/namespaces/request/utils/findSecContextIdx');
+        const openTime = [Date.UTC(2024, 0, 1), Date.UTC(2024, 0, 2)];
+        const closeTime = [Date.UTC(2024, 0, 2), Date.UTC(2024, 0, 3)];
+        // Last bar open 2024-01-02 03:00, close 04:00 → inside day-2 bucket (unclosed)
+        const myOpenTime = Date.UTC(2024, 0, 2, 3);
+        const myCloseTime = Date.UTC(2024, 0, 2, 4);
+
+        // lookahead_off + not last bar → previous closed bucket
+        expect(findSecContextIdx(myOpenTime, myCloseTime, openTime, closeTime, false, false, false)).toBe(0);
+        // lookahead_off + last bar → current forming bucket
+        expect(findSecContextIdx(myOpenTime, myCloseTime, openTime, closeTime, false, false, true)).toBe(1);
+    });
+});

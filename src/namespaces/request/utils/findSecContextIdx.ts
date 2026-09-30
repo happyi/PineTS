@@ -6,7 +6,8 @@ export function findSecContextIdx(
     openTime: number[],
     closeTime: number[],
     lookahead: boolean = false,
-    isRealtime: boolean = false
+    isRealtime: boolean = false,
+    isLastBar: boolean = false
 ): number {
     for (let i = 0; i < openTime.length; i++) {
         // Match based on where the LTF bar opens, not requiring full containment.
@@ -21,7 +22,7 @@ export function findSecContextIdx(
             // If the HTF bar is still open, we must use the previous bar (i-1) to avoid future leak.
             // Exception: on the realtime (last) bar, TradingView returns the current developing
             // HTF values (i) — lookahead_off only prevents future leak on historical bars.
-            if (isRealtime) {
+            if (isRealtime || isLastBar) {
                 return i;
             }
             return myCloseTime >= closeTime[i] ? i : i - 1;

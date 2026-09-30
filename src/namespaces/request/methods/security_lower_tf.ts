@@ -323,7 +323,7 @@ export function security_lower_tf(context: any) {
 
         if (ctxTimeframeIdx === -1 || reqTimeframeIdx === -1) {
             if (_ignore_invalid_timeframe) return NaN;
-            throw new Error('Invalid timeframe');
+            throw new Error('Invalid timeframe (LTF)');
         }
 
         if (reqTimeframeIdx > ctxTimeframeIdx) {
